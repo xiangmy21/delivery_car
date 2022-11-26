@@ -155,8 +155,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
   }
 }
 void SetGoal(float vx, float vy){
-  p1.goal = vy - vx;
-  p2.goal = vy + vx;
+  p1.goal = vy + vx;
+  p2.goal = vy - vx;
   p3.goal = vy - vx;
   p4.goal = vy + vx;
 }
