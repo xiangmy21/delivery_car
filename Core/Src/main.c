@@ -25,7 +25,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "jy62.h"
+#include "zigbee_edc24.h"
+#include <math.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -56,10 +58,10 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-#define PID_MAX 1000//改成自己设定的PWM波的单波�????长输出时�????
-#define PID_MIN -1000//改成自己设定的PWM波的单波�????长输出时间的相反�????
+#define PID_MAX 1000//改成自己设定的PWM波的单波�?????长输出时�?????
+#define PID_MIN -1000//改成自己设定的PWM波的单波�?????长输出时间的相反�?????
 typedef struct{
-  float sum;//时间的积�????
+  float sum;//时间的积�?????
   float lr;//上一次的速度
   float Kp;
   float Ki;
@@ -78,19 +80,36 @@ float PID(pidstr *a,float ver)
   return pwm;
 }
 const float pi = 3.1415926;
+float Theta, V;
+void SetGoal(float theta, float v){
+  Theta = theta, V = v;
+}
+void ReSetGoal(float theta, float v){//theta is rad.
+  float yaw = GetYaw()/180*pi;
+  float vy = v*cos(yaw - theta), vx = v*sin(yaw - theta);
+  p1.goal = vy + vx;
+  p2.goal = vy - vx;
+  p3.goal = vy - vx;
+  p4.goal = vy + vx;
+}
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
-  if(htim->Instance == htim1.Instance){ //TIM1: �??1ms调整�??次输�??
+  if(htim->Instance == htim1.Instance){ //TIM1: �???1ms调整�???次输�???
     //我定义的编码器：TIM2,3,4,5，对应pwm chanel 1,2,3,4
+    ReSetGoal(Theta, V);
     int cnt;
     float ver, pwm;
     static int cc = 0; cc++;
+    static float v[5] = {0};
+    if(cc%15==0) u3_printf("%.3f ", p1.goal);
     
     cnt = __HAL_TIM_GetCounter(&htim2);
     if(cnt>1<<15) cnt-=(1<<16);
     __HAL_TIM_SetCounter(&htim2, 0);
     ver = cnt*6.5*pi; // ver cm/s
+    v[1] += ver;
+    if(cc%15==0) u3_printf("%.3f ", v[1]/15), v[1]=0;
     pwm = PID(&p1, ver);
-    if(cc%100==0) u3_printf("%.2f\n",ver);
+    //if(cc%100==0) u3_printf("%.2f\n",ver);
     if(pwm<0){
       HAL_GPIO_WritePin(GPIOC, GPIO_PIN_10, GPIO_PIN_SET);
       HAL_GPIO_WritePin(GPIOC, GPIO_PIN_11, GPIO_PIN_RESET);
@@ -106,6 +125,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
     if(cnt>1<<15) cnt-=(1<<16);
     __HAL_TIM_SetCounter(&htim3, 0);
     ver = cnt*6.5*pi; // ver cm/s
+    v[2] += ver;
+    if(cc%15==0) u3_printf("%.3f ", v[2]/15), v[2]=0;
     pwm = PID(&p2, ver);
     
     if(pwm<0){
@@ -123,6 +144,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
     if(cnt>1<<15) cnt-=(1<<16);
     __HAL_TIM_SetCounter(&htim4, 0);
     ver = cnt*6.5*pi; // ver cm/s
+    v[3] += ver;
+    if(cc%15==0) u3_printf("%.3f ", v[3]/15), v[3]=0;
     //if(cc%100==0) u3_printf("%d -- %.3f\n", cnt, ver);
     pwm = PID(&p3, ver);
     if(pwm<0){
@@ -140,6 +163,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
     if(cnt>1<<15) cnt-=(1<<16);
     __HAL_TIM_SetCounter(&htim5, 0);
     ver = cnt*6.5*pi; // ver cm/s
+    v[4] += ver;
+    if(cc%15==0) u3_printf("%.3f\n", v[4]/15), v[4]=0;
     //if(cc%100==0) u3_printf("%d -- %.3f\n", cnt, ver);
     pwm = PID(&p4, ver);
     if(pwm<0){
@@ -154,12 +179,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
     __HAL_TIM_SetCompare(&htim8,TIM_CHANNEL_4, pwm);  
   }
 }
-void SetGoal(float vx, float vy){
-  p1.goal = vy + vx;
-  p2.goal = vy - vx;
-  p3.goal = vy - vx;
-  p4.goal = vy + vx;
-}
+
+void jy62_Init(UART_HandleTypeDef* huart); 
 /* USER CODE END 0 */
 
 /**
@@ -200,35 +221,70 @@ int main(void)
   MX_USART3_UART_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
+  
+  jy62_Init(&huart2);
   HAL_TIM_Base_Start_IT(&htim1); //使能定时器TIM1
   HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_1); //使能定时器TIM8的四个�?�道为PWM输出
   HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_2);
   HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_3);
   HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_4);
-  HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL); //使能四个编码�??
+  HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL); //使能四个编码�???
   HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
   HAL_TIM_Encoder_Start(&htim4, TIM_CHANNEL_ALL);
   HAL_TIM_Encoder_Start(&htim5, TIM_CHANNEL_ALL);
-  const float KP = 0.7, KI = 0.4, KD = 0.4;
-  p1.Kp=KP, p1.Ki=KI, p1.Kd=KD;
-  p2.Kp=KP, p2.Ki=KI, p2.Kd=KD;
-  p3.Kp=KP, p3.Ki=KI, p3.Kd=KD;
-  p4.Kp=KP, p4.Ki=KI, p4.Kd=KD;
+  const float ratio = 1;
+  const float KP1 = 0.7, KI1 = 1, KD1 = 10;
+  const float KP2 = KP1/ratio, KI2 = KI1/ratio, KD2 = KD1/ratio;
+  p1.Kp=KP1, p1.Ki=KI1, p1.Kd=KD1;
+  p2.Kp=KP1, p2.Ki=KI2, p2.Kd=KD2;
+  p3.Kp=KP2, p3.Ki=KI2, p3.Kd=KD2;
+  p4.Kp=KP1, p4.Ki=KI1, p4.Kd=KD1;
+  
+  zigbee_Init(&huart3);
   HAL_Delay(1000);
-  SetGoal(20*1.414, 20*1.414);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  HAL_Delay(5000);
-  p1.goal=p2.goal=p3.goal=p4.goal=0;
+  SetBaud(115200);
+  SetHorizontal();
+  InitAngle();
+  Calibrate();
+  SleepOrAwake();
+  /* USER CODE BEGIN WHILE */
+  Position_edc24 temp_goal , ulti_goal;
+  temp_goal.x = temp_goal.y = 126;
   while (1)
   {
+    if(receive_flag)
+    {
+      reqGameInfo();
+      zigbeeMessageRecord();
+    //    u3_printf("time:%d,gameStage:%d,gameStatus:%d,score:%f,posx:%d,posy:%d,remainDist:%d,halfTime:%d\n",
+    //     getGameTime(),(int32_t)getGameStage(),(int32_t)getGameStatus(),getScore(),
+    //     getVehiclePos().x,getVehiclePos().y,getRemainDist(),getHalfGameDuration());
+    //   u3_printf("ownPileNum:%d,oppPileNum:%d,orderNum:%d,latestOrder:(%d %d) (%d %d) %d %d %f,barrier1:(%d %d) (%d %d)\n",
+    //     getOwnChargingPileNum(),getOppChargingPileNum(),getOrderNum(),
+    //     getLatestPendingOrder().depPos.x,getLatestPendingOrder().depPos.y,
+    //     getLatestPendingOrder().desPos.x,getLatestPendingOrder().desPos.y,
+    //     getLatestPendingOrder().timeLimit,getLatestPendingOrder().orderId,getLatestPendingOrder().commission,
+    //     getOneBarrier(0).pos_1.x,getOneBarrier(0).pos_1.y,getOneBarrier(0).pos_2.x,getOneBarrier(0).pos_2.y);
+    //
+
+    // get a new temp_goal
+      if(getOrderNum()){
+        ulti_goal = getOneOrder().desPos;
+      }
+
+
+    // and go 
+      Position_edc24 now = getVehiclePos();
+      SetGoal(-atan2(temp_goal.y - now.y, temp_goal.x - now.x) , 30);
+    }
     /* USER CODE END WHILE */
-    
-    /* USER CODE BEGIN 3 */
-    
+
   }
+  /* USER CODE BEGIN 3 */
   /* USER CODE END 3 */
 }
 
