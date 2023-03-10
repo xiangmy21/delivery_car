@@ -181,6 +181,81 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 }
 
 void jy62_Init(UART_HandleTypeDef* huart); 
+
+bool block[300][300]
+int cnt_order = 0;
+Order_edc24 orders[100];
+
+
+void BFS(Position_edc24 now){
+   
+}
+
+void enblock(int x,int y,int u ,int v){
+  if(x > u) swap(u , x);
+  if(y > v) swap(y , v);
+  int fur = 3;
+  for(int i=max(x-fur , 0);i<=u+fur;i++)
+    for(int j=max(y-fur , 0);j<=v+fur;j++)
+      block[i][j] = 1;
+}
+
+void Solve1(){
+
+  static Position_edc24 temp_goal(126 , 126) , ulti_goal(126 , 126);
+  static int is_mapped = 0;
+  if(!is_mapped){
+    is_mapped = 1;
+    memset(block , 0 , sizeof block);
+    // for(int i=0;i<5;i++){
+    //   Barrier_edc24 B = getOneBarrier(i);
+    //   enblock(B.pos_1.x , B.pos_1.y , B.pos_2.x , B.pos_2.y);
+    // } if I am fast enough,I can cross them
+    enblock(38 , 38 , 107 , 40);
+    enblock(147 , 38 , 216 , 40);    
+    enblock(38 , 38 , 40 , 107);
+    enblock(38 ,147, 40 ,  216 );    
+    enblock(38 , 214 , 107 , 216);    
+    enblock(147 , 214 , 216 , 216);
+    enblock(214 , 38 , 216 , 107);
+    enblock(214 , 147 , 216 , 216);
+  }
+
+  // restore new order
+  Order_edc24 new_order = getLatestPendingOrder();
+  if(cnt_order == 0 || new_order.orderId == orders[cnt_order - 1].orderId)
+    orders[cnt_order ++] = new_order;
+    
+  //get a new ulti_goal
+  if(getOrderNum())
+    ulti_goal = getOneOrder().desPos; // 手上有快递就先送快递
+  else{
+    Position_edc24 now = getVehiclePos();
+    
+    BFS(now);
+
+    int mn = 0x3f3f3f3f;
+    Position_edc24 minLoc;
+    for(int i=0;i<cnt_order;i++)
+      if(orders[i].timeLimit >= 0){ // timelimit of orders delivered  will be set to -1
+        if(dis[orders[i].depPos.x][orders[i].depPos.y] < mn)
+          mn = dis[orders[i].depPos.x][orders[i].depPos.y] ,
+          minLoc = orders[i].depPos;
+      }
+    ulti_goal = minLoc;
+  }
+  
+  // get a new temp_goal
+  
+
+  // and go 
+  Position_edc24 now = getVehiclePos();
+  SetGoal(-atan2(temp_goal.y - now.y, temp_goal.x - now.x) , 30);
+    
+}
+void Solve2(){
+
+}
 /* USER CODE END 0 */
 
 /**
@@ -252,8 +327,6 @@ int main(void)
   Calibrate();
   SleepOrAwake();
   /* USER CODE BEGIN WHILE */
-  Position_edc24 temp_goal , ulti_goal;
-  temp_goal.x = temp_goal.y = 126;
   while (1)
   {
     if(receive_flag)
@@ -270,17 +343,12 @@ int main(void)
     //     getLatestPendingOrder().timeLimit,getLatestPendingOrder().orderId,getLatestPendingOrder().commission,
     //     getOneBarrier(0).pos_1.x,getOneBarrier(0).pos_1.y,getOneBarrier(0).pos_2.x,getOneBarrier(0).pos_2.y);
     //
-
-    // get a new temp_goal
-      if(getOrderNum()){
-        ulti_goal = getOneOrder().desPos;
-      }
-
-
-    // and go 
-      Position_edc24 now = getVehiclePos();
-      SetGoal(-atan2(temp_goal.y - now.y, temp_goal.x - now.x) , 30);
-    }
+      if(getGameStatus() == GameStandby) continue;
+      int stage = getGameStage()
+      if(stage == Prematch) continue;
+      if(stage == FirstHalf) Solve1();
+      else Solve2();
+   }
     /* USER CODE END WHILE */
 
   }

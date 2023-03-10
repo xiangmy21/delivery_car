@@ -21,6 +21,7 @@ typedef enum{
 typedef struct{
     int16_t x;      //单位cm
     int16_t y;
+    Position_edc24(int16_t u , int16_t v):x(u),y(v){}
 }Position_edc24;
 
 typedef struct{
