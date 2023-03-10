@@ -280,7 +280,10 @@ void Solve1(){
 
   // and go 
   Position_edc24 now = getVehiclePos();
-  SetGoal(-atan2(temp_goal.y - now.y, temp_goal.x - now.x) , 30);
+  if(now.x == temp_goal.x  && now.y == temp_goal.y)
+    SetGoal(0,0);
+  else 
+    SetGoal(-atan2(temp_goal.y - now.y, temp_goal.x - now.x) , 30);
     
 }
 void Solve2(){
