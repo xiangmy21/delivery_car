@@ -202,7 +202,7 @@ void enblock(int x,int y,int u ,int v){
 
 void Solve1(){
 
-  static Position_edc24 temp_goal(126 , 126) , ulti_goal(126 , 126);
+  static Position_edc24 temp_goal(126 , 126) , ulti_goal(126 , 126) , tarid = -1;
   static int is_mapped = 0;
   if(!is_mapped){
     is_mapped = 1;
@@ -219,6 +219,26 @@ void Solve1(){
     enblock(147 , 214 , 216 , 216);
     enblock(214 , 38 , 216 , 107);
     enblock(214 , 147 , 216 , 216);
+
+    //如何写安装充电柱？
+    orders[cnt_order].dep = orders[cnt_order].des = Position_edc24(39,126);
+    orders[cnt_order].commission = 100;orders[cnt_order].timeLimit = 100;
+    cnt_order ++;
+    orders[cnt_order].dep = orders[cnt_order].des = Position_edc24(215,126);
+    orders[cnt_order].commission = 100;orders[cnt_order].timeLimit = 100;
+    cnt_order ++;
+    orders[cnt_order].dep = orders[cnt_order].des = Position_edc24(126,39);
+    orders[cnt_order].commission = 100;orders[cnt_order].timeLimit = 100;
+    cnt_order ++;
+  }
+
+  Position_edc24 now = getVehiclePos();
+  if(now.x == ulti_goal.x && now.y == ulti_goal.y && tarid >= 0){
+    orders[tarid].commission = 0;
+    if(tarid <= 2){
+      setChargingPile();
+    }
+    tarid = -1;
   }
 
   // restore new order
@@ -227,22 +247,32 @@ void Solve1(){
     orders[cnt_order ++] = new_order;
     
   //get a new ulti_goal
-  if(getOrderNum())
-    ulti_goal = getOneOrder().desPos; // 手上有快递就先送快递
+  int ordernum = 0;
+  if(ordernum = getOrderNum()){
+    //顺便把已经送了的标记一下
+    for(int i=0;i<ordernum;i++){
+      int id = getOneOrder(i).orderId;
+      for(int j=0;j<cnt_order;j++)
+        if(orders[j].orderId == id)
+          orders[j].commission = 0;
+    }
+    ulti_goal = getOneOrder(0).desPos; // 手上有快递就先送快递
+  }
   else{
-    Position_edc24 now = getVehiclePos();
     
     BFS(now);
 
     int mn = 0x3f3f3f3f;
     Position_edc24 minLoc;
     for(int i=0;i<cnt_order;i++)
-      if(orders[i].timeLimit >= 0){ // timelimit of orders delivered  will be set to -1
+      if(orders[i].commission > 0){ // commission of orders delivered  will be set to -1
         if(dis[orders[i].depPos.x][orders[i].depPos.y] < mn)
           mn = dis[orders[i].depPos.x][orders[i].depPos.y] ,
-          minLoc = orders[i].depPos;
+          minLoc = orders[i].depPos , 
+          tarid = i;
       }
     ulti_goal = minLoc;
+    
   }
   
   // get a new temp_goal
