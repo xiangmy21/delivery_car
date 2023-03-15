@@ -190,6 +190,22 @@ Order_edc24 orders[100];
 void BFS(Position_edc24 now){
    
 }
+#define N 12
+#define INF 0x3f3f3f3f
+#define V 30
+Position_edc24 P[N];
+int startdis[N];
+double param = V/1000.0;
+int calc_direct(Position_edc24 s, Position_edc24 t){
+  int dx = t.x-s.x, dy = t.y-s.y, blocknum = 0;
+  for(int i = 0, k = abs(s.x-t.x)+abs(s.y-t.y); i < k; i++){
+    int x=s.x+dx*i*1.0/k, y=s.y+dy*i*1.0/k;
+    if(block[x][y]==1) return INF;
+    if(block[x][y]) blocknum++;
+  }
+  
+}
+
 
 void enblock(int x,int y,int u ,int v){
   if(x > u) swap(u , x);
