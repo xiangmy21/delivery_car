@@ -182,13 +182,33 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 
 void jy62_Init(UART_HandleTypeDef* huart); 
 
+const int N = 12;
 _Bool block[300][300];
 int cnt_order = 0;
 Order_edc24 orders[100];
+int CD[100][N][2];
+Position_edc24 temp_goal = {126 , 126} , ulti_goal = {126 , 126} ;
 
+Position_edc24 P[N] = {{20,20} , {126 , 20} , {236 , 20} 
+, {20 , 126} , {236 , 126} 
+, {20 , 236} , {126 , 236} , {236 , 236}
+, {126 , 60} , {196 , 126} , {126 , 196} , {60 , 126}}
+int dis[N][N] , nxt[N][N] , gnxt[N];
 
-void BFS(Position_edc24 now){
-   
+void Pre_dis(){
+
+  for(int i=0;i<N;i++)
+    for(int j=0;j<N;j++)
+      dis[i][j] = calc_direct(P[i],P[j]);
+  for(int i=0;i<N;i++)
+    dis[i][i] = 0x3f3f3f3f;
+  for(int k=0;k<N;k++)
+    for(int i=0;i<N;i++)
+      for(int j=0;j<N;j++)
+        if(i!=k && dis[i][j] > dis[i][k] + dis[k][j])
+          dis[i][j] = dis[i][k] + dis[k][j] , 
+          nxt[i][j] = nxt[i][k];
+
 }
 #define N 12
 #define INF 0x3f3f3f3f
@@ -220,9 +240,7 @@ Position_edc24 GetPosition(int16_t x, int16_t y){
   return pos;
 }
 void Solve1(){
-
-  static Position_edc24 temp_goal = {126 , 126} , ulti_goal = {126 , 126} ;
-  static int tarid = -1;
+  static int tarid = -1 , tmpid = -1;
   static int is_mapped = 0;
   if(!is_mapped){
     is_mapped = 1;
@@ -250,12 +268,14 @@ void Solve1(){
     orders[cnt_order].depPos = orders[cnt_order].desPos = GetPosition(126,39);
     orders[cnt_order].commission = 100;orders[cnt_order].timeLimit = 100;
     cnt_order ++;
+
+    Pre_dis();
   }
 
   Position_edc24 now = getVehiclePos();
   if(now.x == ulti_goal.x && now.y == ulti_goal.y && tarid >= 0){
     orders[tarid].commission = 0;
-    if(tarid <= 2){
+    if(tarid <= 2 && tarid >= 0){
       setChargingPile();
     }
     tarid = -1;
@@ -263,11 +283,16 @@ void Solve1(){
 
   // restore new order
   Order_edc24 new_order = getLatestPendingOrder();
-  if(cnt_order == 0 || new_order.orderId != orders[cnt_order - 1].orderId)
+  if(cnt_order == 0 || new_order.orderId != orders[cnt_order - 1].orderId){
+    for(int i=0;i<N;i++)
+      CD[cnt_order][i][0] = calc_direct(new_order.depPos , P[i]),
+      CD[cnt_order][i][1] = calc_direct(new_order.desPos , P[i]);
     orders[cnt_order ++] = new_order;
+  }
     
   //get a new ulti_goal
   int ordernum = 0;
+  Position_edc24 tmp;
   if(ordernum = getOrderNum()){
     //顺便把已经送了的标记一下
     for(int i=0;i<ordernum;i++){
@@ -276,22 +301,61 @@ void Solve1(){
         if(orders[j].orderId == id)
           orders[j].commission = 0;
     }
-    ulti_goal = getOneOrder(0).desPos; // 手上有快递就先送快递
+     tmp = getOneOrder(0).desPos; // 手上有快递就先送快递
+     tarid = -2;//正在送快递
   }
-  else{
-    
-    BFS(now);
+  else if(tarid == -1){ // very slow 
+    int D[N];
+    for(int i=0;i<N;i++) D[i] = calc_direct(now , P[i]);
+    for(int i=0;i<N;i++) for(int j=0;j<N;j++) 
+      D[j] = min(D[j] , D[i] + dis[i][j]);
 
     int mn = 0x3f3f3f3f;
     Position_edc24 minLoc;
     for(int i=0;i<cnt_order;i++)
       if(orders[i].commission > 0){ // commission of orders delivered  will be set to -1
-        if(dis[orders[i].depPos.x][orders[i].depPos.y] < mn)
+        int DIS = 0x3f3f3f3f;
+        for(int j=0;j<N;j++) DIS = min(DIS , D[j] + CD[i][j][0]);
+        if(DIS < mn)
           mn = dis[orders[i].depPos.x][orders[i].depPos.y] ,
           minLoc = orders[i].depPos , 
           tarid = i;
       }
-    ulti_goal = minLoc;
+    tmp = minLoc;
+    
+  }
+  else if(now.x == temp_goal.x && now.y == temp_goal.y){
+    tmpid = gnxt[tmpid];
+    if(tmpid == -1)
+      temp_goal = ulti_goal;
+    else
+      temp_goal = P[tmpid];
+  }
+  if(tmp . x != ulti_goal . x || tmp.y != ulti_goal.y){
+    ulti_goal = tmp;
+    int D[N],E[N];
+    for(int i=0;i<N;i++)
+      D[i] = calc(ulti_goal , P[i]),
+      E[i] = calc(now , P[i]);
+
+    int mn = 0x3f3f3f3f , lst = -1;
+    for(int i=0;i<N;i++)
+      for(int j=0;j<N;j++)
+        if(D[j] + E[i] + dis[i][j] < mn){
+          mn = D[j] + E[i] + dis[i][j];
+          tmpid = i;
+          temp_goal = P[tmpid];
+          lst = j;
+        }
+    if(calc_direct(now , ulti_goal) < mn){
+      temp_goal = ulti_goal;
+      tmpid = -1;
+    }
+    else{
+      gnxt[lst] = -1;
+      for(int i = tmpid;i != lst; i = gnxt[i])
+        gnxt[i] = nxt[i][lst];
+    }
     
   }
   
