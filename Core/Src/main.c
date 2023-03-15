@@ -182,7 +182,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 
 void jy62_Init(UART_HandleTypeDef* huart); 
 
-bool block[300][300]
+_Bool block[300][300];
 int cnt_order = 0;
 Order_edc24 orders[100];
 
@@ -199,10 +199,14 @@ void enblock(int x,int y,int u ,int v){
     for(int j=max(y-fur , 0);j<=v+fur;j++)
       block[i][j] = 1;
 }
-
+Position_edc24 GetPosition(int16_t x, int16_t y){
+  Position_edc24 pos = {x,y};
+  return pos;
+}
 void Solve1(){
 
-  static Position_edc24 temp_goal(126 , 126) , ulti_goal(126 , 126) , tarid = -1;
+  static Position_edc24 temp_goal = {126 , 126} , ulti_goal = {126 , 126} ;
+  static int tarid = -1;
   static int is_mapped = 0;
   if(!is_mapped){
     is_mapped = 1;
@@ -221,13 +225,13 @@ void Solve1(){
     enblock(214 , 147 , 216 , 216);
 
     //如何写安装充电柱？
-    orders[cnt_order].dep = orders[cnt_order].des = Position_edc24(39,126);
+    orders[cnt_order].depPos = orders[cnt_order].desPos = GetPosition(39,126);
     orders[cnt_order].commission = 100;orders[cnt_order].timeLimit = 100;
     cnt_order ++;
-    orders[cnt_order].dep = orders[cnt_order].des = Position_edc24(215,126);
+    orders[cnt_order].depPos = orders[cnt_order].desPos = GetPosition(215,126);
     orders[cnt_order].commission = 100;orders[cnt_order].timeLimit = 100;
     cnt_order ++;
-    orders[cnt_order].dep = orders[cnt_order].des = Position_edc24(126,39);
+    orders[cnt_order].depPos = orders[cnt_order].desPos = GetPosition(126,39);
     orders[cnt_order].commission = 100;orders[cnt_order].timeLimit = 100;
     cnt_order ++;
   }
@@ -243,7 +247,7 @@ void Solve1(){
 
   // restore new order
   Order_edc24 new_order = getLatestPendingOrder();
-  if(cnt_order == 0 || new_order.orderId == orders[cnt_order - 1].orderId)
+  if(cnt_order == 0 || new_order.orderId != orders[cnt_order - 1].orderId)
     orders[cnt_order ++] = new_order;
     
   //get a new ulti_goal
@@ -349,16 +353,15 @@ int main(void)
   p4.Kp=KP1, p4.Ki=KI1, p4.Kd=KD1;
   
   zigbee_Init(&huart3);
-  HAL_Delay(1000);
-  /* USER CODE END 2 */
-
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
   SetBaud(115200);
   SetHorizontal();
   InitAngle();
   Calibrate();
   SleepOrAwake();
+  /* USER CODE END 2 */
+
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
@@ -377,7 +380,7 @@ int main(void)
     //     getOneBarrier(0).pos_1.x,getOneBarrier(0).pos_1.y,getOneBarrier(0).pos_2.x,getOneBarrier(0).pos_2.y);
     //
       if(getGameStatus() == GameStandby) continue;
-      int stage = getGameStage()
+      int stage = getGameStage();
       if(stage == Prematch) continue;
       if(stage == FirstHalf) Solve1();
       else Solve2();
