@@ -182,8 +182,18 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 
 void jy62_Init(UART_HandleTypeDef* huart); 
 
-const int N = 12;
-_Bool block[300][300];
+#define N 12
+unsigned int block[2][256][8];
+
+int getblock(unsigned int block[256][8] , int x,int y){
+  int t = y >> 5;
+  return block[x][t] >> (y & 31) & 1;
+}
+void updblock(unsigned int block[256][8] , int x,int y){
+  int t = y >> 5;
+  block[x][t] |= 1 << (y & 31);
+}
+
 int cnt_order = 0;
 Order_edc24 orders[100];
 int CD[100][N][2];
@@ -192,11 +202,27 @@ Position_edc24 temp_goal = {126 , 126} , ulti_goal = {126 , 126} ;
 Position_edc24 P[N] = {{20,20} , {126 , 20} , {236 , 20} 
 , {20 , 126} , {236 , 126} 
 , {20 , 236} , {126 , 236} , {236 , 236}
-, {126 , 60} , {196 , 126} , {126 , 196} , {60 , 126}}
+, {126 , 60} , {196 , 126} , {126 , 196} , {60 , 126}};
 int dis[N][N] , nxt[N][N] , gnxt[N];
 
-void Pre_dis(){
+#define INF 0x3f3f3f3f
+#define V 30
+double param = V/1000.0;
+int abs(int x){return x>=0?x:-x;}
+int max(int a,int b){return a>b?a:b;}
+int min(int a,int b){return a<b?a:b;}
+int calc_direct(Position_edc24 s, Position_edc24 t){
+  int dx = t.x-s.x, dy = t.y-s.y, blocknum = 0;
+  for(int i = 0, k = abs(s.x-t.x)+abs(s.y-t.y); i < k; i++){
+    int x=s.x+dx*i*1.0/k, y=s.y+dy*i*1.0/k;
+    if(getblock(block[0] , x , y)) return INF;
+    if(getblock(block[1] , x , y)) blocknum++;
+  }
+  return sqrt(dx*dx+dy*dy)+blocknum*(dx?sqrt(1+dy*dy*1.0/(dx*dx)):1.0)/V*100*param;
+}
 
+void Pre_dis(){
+  // calc dis of P. floyd.
   for(int i=0;i<N;i++)
     for(int j=0;j<N;j++)
       dis[i][j] = calc_direct(P[i],P[j]);
@@ -210,34 +236,21 @@ void Pre_dis(){
           nxt[i][j] = nxt[i][k];
 
 }
-#define N 12
-#define INF 0x3f3f3f3f
-#define V 30
-Position_edc24 P[N];
-int startdis[N];
-double param = V/1000.0;
-int calc_direct(Position_edc24 s, Position_edc24 t){
-  int dx = t.x-s.x, dy = t.y-s.y, blocknum = 0;
-  for(int i = 0, k = abs(s.x-t.x)+abs(s.y-t.y); i < k; i++){
-    int x=s.x+dx*i*1.0/k, y=s.y+dy*i*1.0/k;
-    if(block[x][y]==1) return INF;
-    if(block[x][y]) blocknum++;
-  }
-  
-}
 
-
-void enblock(int x,int y,int u ,int v){
-  if(x > u) swap(u , x);
-  if(y > v) swap(y , v);
-  int fur = 3;
+void enblock(int x,int y,int u ,int v, int flg){
+  // if(x > u) swap(u , x);
+  // if(y > v) swap(y , v);
+  int fur = flg==1?5:2;
   for(int i=max(x-fur , 0);i<=u+fur;i++)
     for(int j=max(y-fur , 0);j<=v+fur;j++)
-      block[i][j] = 1;
+      updblock(block[flg-1] , i , j);
 }
 Position_edc24 GetPosition(int16_t x, int16_t y){
   Position_edc24 pos = {x,y};
   return pos;
+}
+int Touch(Position_edc24 a, Position_edc24 b){
+  return (a.x-b.x)*(a.x-b.x) + (a.y-b.y)*(a.y-b.y) <= 64;
 }
 void Solve1(){
   static int tarid = -1 , tmpid = -1;
@@ -245,18 +258,18 @@ void Solve1(){
   if(!is_mapped){
     is_mapped = 1;
     memset(block , 0 , sizeof block);
-    // for(int i=0;i<5;i++){
-    //   Barrier_edc24 B = getOneBarrier(i);
-    //   enblock(B.pos_1.x , B.pos_1.y , B.pos_2.x , B.pos_2.y);
-    // } if I am fast enough,I can cross them
-    enblock(38 , 38 , 107 , 40);
-    enblock(147 , 38 , 216 , 40);    
-    enblock(38 , 38 , 40 , 107);
-    enblock(38 ,147, 40 ,  216 );    
-    enblock(38 , 214 , 107 , 216);    
-    enblock(147 , 214 , 216 , 216);
-    enblock(214 , 38 , 216 , 107);
-    enblock(214 , 147 , 216 , 216);
+    for(int i=0;i<5;i++){
+      Barrier_edc24 B = getOneBarrier(i);
+      enblock(B.pos_1.x , B.pos_1.y , B.pos_2.x , B.pos_2.y, 2);
+    } //if I am fast enough,I can cross them
+    enblock(38 , 38 , 107 , 40 , 1);
+    enblock(147 , 38 , 216 , 40 , 1);    
+    enblock(38 , 38 , 40 , 107 , 1);
+    enblock(38 ,147, 40 ,  216 , 1);    
+    enblock(38 , 214 , 107 , 216, 1);    
+    enblock(147 , 214 , 216 , 216 , 1);
+    enblock(214 , 38 , 216 , 107 , 1);
+    enblock(214 , 147 , 216 , 216 , 1);
 
     //如何写安装充电柱？
     orders[cnt_order].depPos = orders[cnt_order].desPos = GetPosition(39,126);
@@ -273,7 +286,7 @@ void Solve1(){
   }
 
   Position_edc24 now = getVehiclePos();
-  if(now.x == ulti_goal.x && now.y == ulti_goal.y && tarid >= 0){
+  if( Touch(now, ulti_goal) && tarid >= 0){
     orders[tarid].commission = 0;
     if(tarid <= 2 && tarid >= 0){
       setChargingPile();
@@ -324,7 +337,7 @@ void Solve1(){
     tmp = minLoc;
     
   }
-  else if(now.x == temp_goal.x && now.y == temp_goal.y){
+  else if( Touch(now, temp_goal) ){
     tmpid = gnxt[tmpid];
     if(tmpid == -1)
       temp_goal = ulti_goal;
@@ -335,8 +348,8 @@ void Solve1(){
     ulti_goal = tmp;
     int D[N],E[N];
     for(int i=0;i<N;i++)
-      D[i] = calc(ulti_goal , P[i]),
-      E[i] = calc(now , P[i]);
+      D[i] = calc_direct(ulti_goal , P[i]),
+      E[i] = calc_direct(now , P[i]);
 
     int mn = 0x3f3f3f3f , lst = -1;
     for(int i=0;i<N;i++)
@@ -363,7 +376,7 @@ void Solve1(){
   
 
   // and go 
-  Position_edc24 now = getVehiclePos();
+  now = getVehiclePos();
   if(now.x == temp_goal.x  && now.y == temp_goal.y)
     SetGoal(0,0);
   else 
