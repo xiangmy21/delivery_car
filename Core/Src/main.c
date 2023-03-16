@@ -206,8 +206,8 @@ Position_edc24 P[N] = {{20,20} , {126 , 20} , {236 , 20}
 int dis[N][N] , nxt[N][N] , gnxt[N];
 
 #define INF 0x3f3f3f3f
-#define V 30
-double param = V/1000.0;
+#define Velocity 30
+double param = Velocity/1000.0;
 int abs(int x){return x>=0?x:-x;}
 int max(int a,int b){return a>b?a:b;}
 int min(int a,int b){return a<b?a:b;}
@@ -219,7 +219,7 @@ int calc_direct(Position_edc24 s, Position_edc24 t){
     if(getblock(block[1] , x , y)) blocknum++;
   }
   double d = sqrt(dx*dx+dy*dy);
-  return k ? d + d * blocknum / k / V*100*param : 0;
+  return k ? d + d * blocknum / k / Velocity*100*param : 0;
 }
 
 void Pre_dis(){
@@ -299,14 +299,16 @@ void Solve1(){
 
   Position_edc24 now = getVehiclePos();
   //tarid : destination -2, none -1, charge 0~2, order >2
-  if( Touch(now, ulti_goal) && tarid >= 0){
-    orders[tarid].commission = 0;
+  if( Touch(now, ulti_goal)){
+    if(tarid >= 0)
+      orders[tarid].commission = 0;
     if(tarid <= 2 && tarid >= 0){
       setChargingPile();
       ulti_goal = GetPosition(-1 , -1);
     }
     tarid = -1;
   }
+  //u1_printf(":310\n");
 
   // restore new order
   Order_edc24 new_order = getLatestPendingOrder(); // 还没领取的第�?个订�?
@@ -316,10 +318,12 @@ void Solve1(){
       CD[cnt_order][i][1] = calc_direct(new_order.desPos , P[i]);
     orders[cnt_order ++] = new_order;
   }
+  //u1_printf(":320\n");
     
   //get a new ulti_goal
   int ordernum = 0;
   Position_edc24 tmp;
+  //u1_printf("tmp initial: (%d,%d)\n",tmp.x,tmp.y);
   if(ordernum = getOrderNum()){
     //顺便把已经�?�了的标记一�?
     for(int i=0;i<ordernum;i++){
@@ -330,6 +334,7 @@ void Solve1(){
     }
      tmp = getOneOrder(0).desPos; // 手上有快递就先�?�快�?
      tarid = -2;//正在送快�?
+     //u1_printf(":335\n");
   }
   else if(tarid == -1){ // very slow 
     int D[N];
@@ -349,16 +354,19 @@ void Solve1(){
           tarid = i;
       }
     tmp = minLoc;
-    
+    //u1_printf(":355\n");
   }
-  else if( Touch(now, temp_goal) ){
+  else tmp = ulti_goal;
+  if(tmpid != -1 &&  Touch(now, temp_goal) ){
     tmpid = gnxt[tmpid];
     if(tmpid == -1)
       temp_goal = ulti_goal;
     else
       temp_goal = P[tmpid];
+    tmp = ulti_goal;
   }
   if(tmp . x != ulti_goal . x || tmp.y != ulti_goal.y){
+    //u1_printf(":365\n");
     ulti_goal = tmp;
     int D[N],E[N];
     for(int i=0;i<N;i++)
@@ -383,7 +391,7 @@ void Solve1(){
       for(int i = tmpid;i != lst; i = gnxt[i])
         gnxt[i] = nxt[i][lst];
     }
-    
+    //u1_printf(":390\n");
   }
   
   // get a new temp_goal
@@ -394,11 +402,12 @@ void Solve1(){
   if(now.x == temp_goal.x  && now.y == temp_goal.y)
     SetGoal(0,0);
   else 
-    SetGoal(-atan2(temp_goal.y - now.y, temp_goal.x - now.x) , 5);
-
-  static int cc = 0;
-  if(cc++ % 15 == 0)    
-    u1_printf("(%d,%d) (%d,%d) (%d,%d)\n",now.x, now.y, temp_goal.x, temp_goal.y, ulti_goal.x, ulti_goal.y);
+    SetGoal(-atan2(temp_goal.y - now.y, temp_goal.x - now.x) , 30);
+  // static int cc = 0;
+  // if(cc++ % 2 == 0){
+  //   u1_printf("(%d,%d) (%d,%d) (%d,%d)\n",now.x, now.y, temp_goal.x, temp_goal.y, ulti_goal.x, ulti_goal.y);
+  //   u1_printf("%.2f %.2f\n",GetYaw(),Theta);
+  // }
 }
 void Solve2(){
 
