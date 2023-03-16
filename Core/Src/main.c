@@ -58,10 +58,10 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-#define PID_MAX 1000//改成自己设定的PWM波的单波�?????长输出时�?????
-#define PID_MIN -1000//改成自己设定的PWM波的单波�?????长输出时间的相反�?????
+#define PID_MAX 1000//改成自己设定的PWM波的单波�??????长输出时�??????
+#define PID_MIN -1000//改成自己设定的PWM波的单波�??????长输出时间的相反�??????
 typedef struct{
-  float sum;//时间的积�?????
+  float sum;//时间的积�??????
   float lr;//上一次的速度
   float Kp;
   float Ki;
@@ -93,21 +93,21 @@ void ReSetGoal(float theta, float v){//theta is rad.
   p4.goal = vy + vx;
 }
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
-  if(htim->Instance == htim1.Instance){ //TIM1: �???1ms调整�???次输�???
+  if(htim->Instance == htim1.Instance){ //TIM1: �????1ms调整�????次输�????
     //我定义的编码器：TIM2,3,4,5，对应pwm chanel 1,2,3,4
     ReSetGoal(Theta, V);
     int cnt;
     float ver, pwm;
     static int cc = 0; cc++;
     static float v[5] = {0};
-    if(cc%15==0) u3_printf("%.3f ", p1.goal);
+    //if(cc%15==0) u3_printf("%.3f ", p1.goal);
     
     cnt = __HAL_TIM_GetCounter(&htim2);
     if(cnt>1<<15) cnt-=(1<<16);
     __HAL_TIM_SetCounter(&htim2, 0);
     ver = cnt*6.5*pi; // ver cm/s
     v[1] += ver;
-    if(cc%15==0) u3_printf("%.3f ", v[1]/15), v[1]=0;
+    //if(cc%15==0) u3_printf("%.3f ", v[1]/15), v[1]=0;
     pwm = PID(&p1, ver);
     //if(cc%100==0) u3_printf("%.2f\n",ver);
     if(pwm<0){
@@ -126,7 +126,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
     __HAL_TIM_SetCounter(&htim3, 0);
     ver = cnt*6.5*pi; // ver cm/s
     v[2] += ver;
-    if(cc%15==0) u3_printf("%.3f ", v[2]/15), v[2]=0;
+    //if(cc%15==0) u3_printf("%.3f ", v[2]/15), v[2]=0;
     pwm = PID(&p2, ver);
     
     if(pwm<0){
@@ -145,7 +145,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
     __HAL_TIM_SetCounter(&htim4, 0);
     ver = cnt*6.5*pi; // ver cm/s
     v[3] += ver;
-    if(cc%15==0) u3_printf("%.3f ", v[3]/15), v[3]=0;
+    //if(cc%15==0) u3_printf("%.3f ", v[3]/15), v[3]=0;
     //if(cc%100==0) u3_printf("%d -- %.3f\n", cnt, ver);
     pwm = PID(&p3, ver);
     if(pwm<0){
@@ -164,7 +164,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
     __HAL_TIM_SetCounter(&htim5, 0);
     ver = cnt*6.5*pi; // ver cm/s
     v[4] += ver;
-    if(cc%15==0) u3_printf("%.3f\n", v[4]/15), v[4]=0;
+    //if(cc%15==0) u3_printf("%.3f\n", v[4]/15), v[4]=0;
     //if(cc%100==0) u3_printf("%d -- %.3f\n", cnt, ver);
     pwm = PID(&p4, ver);
     if(pwm<0){
@@ -212,22 +212,22 @@ int abs(int x){return x>=0?x:-x;}
 int max(int a,int b){return a>b?a:b;}
 int min(int a,int b){return a<b?a:b;}
 int calc_direct(Position_edc24 s, Position_edc24 t){
-  int dx = t.x-s.x, dy = t.y-s.y, blocknum = 0;
-  for(int i = 0, k = abs(s.x-t.x)+abs(s.y-t.y); i < k; i++){
+  int dx = t.x-s.x, dy = t.y-s.y, blocknum = 0, k = min(abs(s.x-t.x)+abs(s.y-t.y),50);
+  for(int i = 0; i < k; i++){
     int x=s.x+dx*i*1.0/k, y=s.y+dy*i*1.0/k;
     if(getblock(block[0] , x , y)) return INF;
     if(getblock(block[1] , x , y)) blocknum++;
   }
-  return sqrt(dx*dx+dy*dy)+blocknum*(dx?sqrt(1+dy*dy*1.0/(dx*dx)):1.0)/V*100*param;
+  double d = sqrt(dx*dx+dy*dy);
+  return k ? d + d * blocknum / k / V*100*param : 0;
 }
 
 void Pre_dis(){
   // calc dis of P. floyd.
   for(int i=0;i<N;i++)
     for(int j=0;j<N;j++)
-      dis[i][j] = calc_direct(P[i],P[j]);
-  for(int i=0;i<N;i++)
-    dis[i][i] = 0x3f3f3f3f;
+      dis[i][j] = calc_direct(P[i],P[j])
+      , nxt[i][j] = j;
   for(int k=0;k<N;k++)
     for(int i=0;i<N;i++)
       for(int j=0;j<N;j++)
@@ -271,32 +271,46 @@ void Solve1(){
     enblock(214 , 38 , 216 , 107 , 1);
     enblock(214 , 147 , 216 , 216 , 1);
 
-    //如何写安装充电柱？
-    orders[cnt_order].depPos = orders[cnt_order].desPos = GetPosition(39,126);
+    //如何写安装充电柱�?
+    orders[cnt_order].depPos = GetPosition(39,126) ,  orders[cnt_order].desPos = GetPosition(40,126);
     orders[cnt_order].commission = 100;orders[cnt_order].timeLimit = 100;
+    for(int i=0;i<N;i++)
+      CD[cnt_order][i][0] = calc_direct(orders[cnt_order].depPos , P[i]),
+      CD[cnt_order][i][1] = calc_direct(orders[cnt_order].desPos , P[i]);
+   
     cnt_order ++;
-    orders[cnt_order].depPos = orders[cnt_order].desPos = GetPosition(215,126);
+    orders[cnt_order].depPos = GetPosition(215,126);orders[cnt_order].desPos = GetPosition(214,126);
     orders[cnt_order].commission = 100;orders[cnt_order].timeLimit = 100;
+    for(int i=0;i<N;i++)
+      CD[cnt_order][i][0] = calc_direct(orders[cnt_order].depPos , P[i]),
+      CD[cnt_order][i][1] = calc_direct(orders[cnt_order].desPos , P[i]);
+   
     cnt_order ++;
-    orders[cnt_order].depPos = orders[cnt_order].desPos = GetPosition(126,39);
+    orders[cnt_order].depPos  = GetPosition(126,39); orders[cnt_order].desPos = GetPosition(126,40);
     orders[cnt_order].commission = 100;orders[cnt_order].timeLimit = 100;
+    for(int i=0;i<N;i++)
+      CD[cnt_order][i][0] = calc_direct(orders[cnt_order].depPos , P[i]),
+      CD[cnt_order][i][1] = calc_direct(orders[cnt_order].desPos , P[i]);
+   
     cnt_order ++;
 
     Pre_dis();
   }
 
   Position_edc24 now = getVehiclePos();
+  //tarid : destination -2, none -1, charge 0~2, order >2
   if( Touch(now, ulti_goal) && tarid >= 0){
     orders[tarid].commission = 0;
     if(tarid <= 2 && tarid >= 0){
       setChargingPile();
+      ulti_goal = GetPosition(-1 , -1);
     }
     tarid = -1;
   }
 
   // restore new order
-  Order_edc24 new_order = getLatestPendingOrder();
-  if(cnt_order == 0 || new_order.orderId != orders[cnt_order - 1].orderId){
+  Order_edc24 new_order = getLatestPendingOrder(); // 还没领取的第�?个订�?
+  if(new_order.orderId!=-1 && (cnt_order == 0 || new_order.orderId != orders[cnt_order - 1].orderId)){
     for(int i=0;i<N;i++)
       CD[cnt_order][i][0] = calc_direct(new_order.depPos , P[i]),
       CD[cnt_order][i][1] = calc_direct(new_order.desPos , P[i]);
@@ -307,15 +321,15 @@ void Solve1(){
   int ordernum = 0;
   Position_edc24 tmp;
   if(ordernum = getOrderNum()){
-    //顺便把已经送了的标记一下
+    //顺便把已经�?�了的标记一�?
     for(int i=0;i<ordernum;i++){
       int id = getOneOrder(i).orderId;
       for(int j=0;j<cnt_order;j++)
         if(orders[j].orderId == id)
           orders[j].commission = 0;
     }
-     tmp = getOneOrder(0).desPos; // 手上有快递就先送快递
-     tarid = -2;//正在送快递
+     tmp = getOneOrder(0).desPos; // 手上有快递就先�?�快�?
+     tarid = -2;//正在送快�?
   }
   else if(tarid == -1){ // very slow 
     int D[N];
@@ -330,7 +344,7 @@ void Solve1(){
         int DIS = 0x3f3f3f3f;
         for(int j=0;j<N;j++) DIS = min(DIS , D[j] + CD[i][j][0]);
         if(DIS < mn)
-          mn = dis[orders[i].depPos.x][orders[i].depPos.y] ,
+          mn = DIS ,
           minLoc = orders[i].depPos , 
           tarid = i;
       }
@@ -380,8 +394,11 @@ void Solve1(){
   if(now.x == temp_goal.x  && now.y == temp_goal.y)
     SetGoal(0,0);
   else 
-    SetGoal(-atan2(temp_goal.y - now.y, temp_goal.x - now.x) , 30);
-    
+    SetGoal(-atan2(temp_goal.y - now.y, temp_goal.x - now.x) , 5);
+
+  static int cc = 0;
+  if(cc++ % 15 == 0)    
+    u1_printf("(%d,%d) (%d,%d) (%d,%d)\n",now.x, now.y, temp_goal.x, temp_goal.y, ulti_goal.x, ulti_goal.y);
 }
 void Solve2(){
 
@@ -425,6 +442,7 @@ int main(void)
   MX_TIM8_Init();
   MX_USART3_UART_Init();
   MX_USART2_UART_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   
   jy62_Init(&huart2);
@@ -433,7 +451,7 @@ int main(void)
   HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_2);
   HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_3);
   HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_4);
-  HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL); //使能四个编码�???
+  HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL); //使能四个编码�????
   HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
   HAL_TIM_Encoder_Start(&htim4, TIM_CHANNEL_ALL);
   HAL_TIM_Encoder_Start(&htim5, TIM_CHANNEL_ALL);
@@ -472,16 +490,18 @@ int main(void)
     //     getLatestPendingOrder().timeLimit,getLatestPendingOrder().orderId,getLatestPendingOrder().commission,
     //     getOneBarrier(0).pos_1.x,getOneBarrier(0).pos_1.y,getOneBarrier(0).pos_2.x,getOneBarrier(0).pos_2.y);
     //
-      if(getGameStatus() == GameStandby) continue;
+      if(getGameStatus() == GameStandby){
+        SetGoal(0,0);
+        continue;
+      }
       int stage = getGameStage();
       if(stage == Prematch) continue;
       if(stage == FirstHalf) Solve1();
       else Solve2();
-   }
+    }
     /* USER CODE END WHILE */
-
   }
-  /* USER CODE BEGIN 3 */
+    /* USER CODE BEGIN 3 */
   /* USER CODE END 3 */
 }
 
