@@ -80,12 +80,12 @@ float PID(pidstr *a,float ver)
   return pwm;
 }
 const float pi = 3.1415926;
-float Theta, V;
+float Theta, V , delta = 0;
 void SetGoal(float theta, float v){
   Theta = theta, V = v;
 }
 void ReSetGoal(float theta, float v){//theta is rad.
-  float yaw = GetYaw()/180*pi;
+  float yaw = (GetYaw() + delta)/180*pi;
   float vy = v*cos(yaw - theta), vx = v*sin(yaw - theta);
   p1.goal = vy + vx;
   p2.goal = vy - vx;
@@ -185,6 +185,11 @@ void jy62_Init(UART_HandleTypeDef* huart);
 #define N 12
 unsigned int block[2][256][8];
 
+
+Position_edc24 GetPosition(int16_t x, int16_t y){
+  Position_edc24 pos = {x,y};
+  return pos;
+}
 int getblock(unsigned int block[256][8] , int x,int y){
   int t = y >> 5;
   return block[x][t] >> (y & 31) & 1;
@@ -198,6 +203,7 @@ int cnt_order = 0;
 Order_edc24 orders[100];
 int CD[100][N][2];
 Position_edc24 temp_goal = {126 , 126} , ulti_goal = {126 , 126} ;
+Position_edc24 St = {-1 , -1};
 
 Position_edc24 P[N] = {{20,20} , {126 , 20} , {236 , 20} 
 , {20 , 126} , {236 , 126} 
@@ -208,16 +214,17 @@ int dis[N][N] , nxt[N][N] , gnxt[N];
 #define INF 0x3f3f3f3f
 #define Velocity 30
 double param = Velocity/1000.0;
+int last_fix , start_fix;
 int abs(int x){return x>=0?x:-x;}
 int max(int a,int b){return a>b?a:b;}
 int min(int a,int b){return a<b?a:b;}
 int calc_direct(Position_edc24 s, Position_edc24 t){
   int dx = t.x-s.x, dy = t.y-s.y, blocknum = 0, k = min(abs(s.x-t.x)+abs(s.y-t.y),50);
-  for(int i = 0; i < k; i++){
-    int x=s.x+dx*i*1.0/k, y=s.y+dy*i*1.0/k;
-    if(getblock(block[0] , x , y)) return INF;
-    if(getblock(block[1] , x , y)) blocknum++;
-  }
+  // for(int i = 0; i < k; i++){
+  //   int x=s.x+dx*i*1.0/k, y=s.y+dy*i*1.0/k;
+  //   if(getblock(block[0] , x , y)) return INF;
+  //   if(getblock(block[1] , x , y)) blocknum++;
+  // }
   double d = sqrt(dx*dx+dy*dy);
   return k ? d + d * blocknum / k / Velocity*100*param : 0;
 }
@@ -244,10 +251,6 @@ void enblock(int x,int y,int u ,int v, int flg){
   for(int i=max(x-fur , 0);i<=u+fur;i++)
     for(int j=max(y-fur , 0);j<=v+fur;j++)
       updblock(block[flg-1] , i , j);
-}
-Position_edc24 GetPosition(int16_t x, int16_t y){
-  Position_edc24 pos = {x,y};
-  return pos;
 }
 int Touch(Position_edc24 a, Position_edc24 b){
   return (a.x-b.x)*(a.x-b.x) + (a.y-b.y)*(a.y-b.y) <= 64;
@@ -297,19 +300,6 @@ void Solve1(){
     Pre_dis();
   }
 
-  Position_edc24 now = getVehiclePos();
-  //tarid : destination -2, none -1, charge 0~2, order >2
-  if( Touch(now, ulti_goal)){
-    if(tarid >= 0)
-      orders[tarid].commission = 0;
-    if(tarid <= 2 && tarid >= 0){
-      setChargingPile();
-      ulti_goal = GetPosition(-1 , -1);
-    }
-    tarid = -1;
-  }
-  //u1_printf(":310\n");
-
   // restore new order
   Order_edc24 new_order = getLatestPendingOrder(); // 还没领取的第�?个订�?
   if(new_order.orderId!=-1 && (cnt_order == 0 || new_order.orderId != orders[cnt_order - 1].orderId)){
@@ -318,96 +308,126 @@ void Solve1(){
       CD[cnt_order][i][1] = calc_direct(new_order.desPos , P[i]);
     orders[cnt_order ++] = new_order;
   }
-  //u1_printf(":320\n");
+  for(int i=0;i<getOrderNum();i++){
+    int id = getOneOrder(i).orderId;
+    for(int j=0;j<cnt_order;j++)
+      if(orders[j].orderId == id)
+      orders[j].commission = 0;
+  }
     
-  //get a new ulti_goal
-  int ordernum = 0;
-  Position_edc24 tmp;
-  //u1_printf("tmp initial: (%d,%d)\n",tmp.x,tmp.y);
-  if(ordernum = getOrderNum()){
-    //顺便把已经�?�了的标记一�?
-    for(int i=0;i<ordernum;i++){
-      int id = getOneOrder(i).orderId;
-      for(int j=0;j<cnt_order;j++)
-        if(orders[j].orderId == id)
-          orders[j].commission = 0;
-    }
-     tmp = getOneOrder(0).desPos; // 手上有快递就先�?�快�?
-     tarid = -2;//正在送快�?
-     //u1_printf(":335\n");
-  }
-  else if(tarid == -1){ // very slow 
-    int D[N];
-    for(int i=0;i<N;i++) D[i] = calc_direct(now , P[i]);
-    for(int i=0;i<N;i++) for(int j=0;j<N;j++) 
-      D[j] = min(D[j] , D[i] + dis[i][j]);
+  Position_edc24 now = getVehiclePos();
 
-    int mn = 0x3f3f3f3f;
-    Position_edc24 minLoc;
-    for(int i=0;i<cnt_order;i++)
-      if(orders[i].commission > 0){ // commission of orders delivered  will be set to -1
-        int DIS = 0x3f3f3f3f;
-        for(int j=0;j<N;j++) DIS = min(DIS , D[j] + CD[i][j][0]);
-        if(DIS < mn)
-          mn = DIS ,
-          minLoc = orders[i].depPos , 
-          tarid = i;
+  if(now.x >= 20 && now.x <= 240 && now.y >= 20 && now.y <= 240 
+    && (getGameTime() - last_fix) >=600000 && (St.x == -1 || getGameTime() - start_fix <= 2000)){
+      if(St.x == -1) St = now , start_fix = getGameTime();
+      if((getGameTime() - start_fix) >= 1000)
+        SetGoal(GetYaw() , 20);  
+      else
+        SetGoal(0,0) , St = now;
+  }
+  else{
+    if(St.x != -1){
+      delta = -atan2(-St.y + now.y, -St.x + now.x) *180/pi - GetYaw();
+      St = GetPosition(-1, -1);
+      last_fix = getGameTime();
+    }
+
+    //tarid : destination -2, none -1, charge 0~2, order >2
+    if( Touch(now, ulti_goal)){
+      if(tarid <= 2 && tarid >= 0){
+        orders[tarid].commission = 0;
+        setChargingPile();
       }
-    tmp = minLoc;
-    //u1_printf(":355\n");
-  }
-  else tmp = ulti_goal;
-  if(tmpid != -1 &&  Touch(now, temp_goal) ){
-    tmpid = gnxt[tmpid];
-    if(tmpid == -1)
-      temp_goal = ulti_goal;
-    else
-      temp_goal = P[tmpid];
-    tmp = ulti_goal;
-  }
-  if(tmp . x != ulti_goal . x || tmp.y != ulti_goal.y){
-    //u1_printf(":365\n");
-    ulti_goal = tmp;
-    int D[N],E[N];
-    for(int i=0;i<N;i++)
-      D[i] = calc_direct(ulti_goal , P[i]),
-      E[i] = calc_direct(now , P[i]);
+      tarid = -1;
+    }
+      
+    //get a new ulti_goal
+    int ordernum = 0;
+    Position_edc24 tmp = ulti_goal;
+    //u1_printf("tmp initial: (%d,%d)\n",tmp.x,tmp.y);
+    if(ordernum = getOrderNum()){
+      //顺便把已经�?�了的标记一�?
+      tmp = getOneOrder(0).desPos; // 手上有快递就先�?�快�?
+      tarid = -2;//正在送快�?
+    }
+    else if(tarid >= -1){ // very slow 
+      int D[N];
+      for(int i=0;i<N;i++) D[i] = calc_direct(now , P[i]);
+      for(int i=0;i<N;i++) for(int j=0;j<N;j++) 
+        D[j] = min(D[j] , D[i] + dis[i][j]);
 
-    int mn = 0x3f3f3f3f , lst = -1;
-    for(int i=0;i<N;i++)
-      for(int j=0;j<N;j++)
-        if(D[j] + E[i] + dis[i][j] < mn){
-          mn = D[j] + E[i] + dis[i][j];
-          tmpid = i;
-          temp_goal = P[tmpid];
-          lst = j;
+      int mn = 0x3f3f3f3f;
+      Position_edc24 minLoc;
+      for(int i=0;i<cnt_order;i++)
+        if(orders[i].commission > 0){ // commission of orders delivered  will be set to 0
+          int DIS = calc_direct(now,orders[i].depPos);
+          for(int j=0;j<N;j++) DIS = min(DIS , D[j] + CD[i][j][0]);
+          if(DIS < mn)
+            mn = DIS ,
+            minLoc = orders[i].depPos , 
+            tarid = i;
         }
-    if(calc_direct(now , ulti_goal) < mn){
-      temp_goal = ulti_goal;
-      tmpid = -1;
+      if(mn!=0x3f3f3f3f) tmp = minLoc;
+      //u1_printf(":355\n");
     }
-    else{
-      gnxt[lst] = -1;
-      for(int i = tmpid;i != lst; i = gnxt[i])
-        gnxt[i] = nxt[i][lst];
+    if(tmpid != -1 &&  Touch(now, temp_goal) ){
+      tmpid = gnxt[tmpid];
+      if(tmpid == -1)
+        temp_goal = ulti_goal;
+      else
+        temp_goal = P[tmpid];
     }
-    //u1_printf(":390\n");
-  }
-  
-  // get a new temp_goal
-  
+    if(tmp . x != ulti_goal . x || tmp.y != ulti_goal.y){
+      //u1_printf(":365\n");
+      ulti_goal = tmp;
+      int D[N],E[N];
+      for(int i=0;i<N;i++)
+        D[i] = calc_direct(ulti_goal , P[i]),
+        E[i] = calc_direct(now , P[i]);
 
-  // and go 
-  now = getVehiclePos();
-  if(now.x == temp_goal.x  && now.y == temp_goal.y)
-    SetGoal(0,0);
-  else 
-    SetGoal(-atan2(temp_goal.y - now.y, temp_goal.x - now.x) , 30);
-  // static int cc = 0;
-  // if(cc++ % 2 == 0){
-  //   u1_printf("(%d,%d) (%d,%d) (%d,%d)\n",now.x, now.y, temp_goal.x, temp_goal.y, ulti_goal.x, ulti_goal.y);
-  //   u1_printf("%.2f %.2f\n",GetYaw(),Theta);
-  // }
+      int mn = 0x3f3f3f3f , lst = -1;
+      for(int i=0;i<N;i++)
+        for(int j=0;j<N;j++)
+          if(D[j] + E[i] + dis[i][j] < mn){
+            mn = D[j] + E[i] + dis[i][j];
+            tmpid = i;
+            temp_goal = P[tmpid];
+            lst = j;
+          }
+      if(calc_direct(now , ulti_goal) < mn){
+        temp_goal = ulti_goal;
+        mn = 1;
+        tmpid = -1;
+      }
+      else{
+        gnxt[lst] = -1;
+        for(int i = tmpid;i != lst; i = gnxt[i])
+          gnxt[i] = nxt[i][lst];
+      }
+      //if(mn == 0x3f3f3f3f) u1_printf("error\n");
+      //u1_printf(":390\n");
+    }
+    
+    // get a new temp_goal
+    
+
+    // and go 
+    now = getVehiclePos();
+    
+    if(now.x == temp_goal.x  && now.y == temp_goal.y)
+      SetGoal(0,0);
+    else{
+      int distance = (temp_goal.x - now.x)*(temp_goal.x - now.x) + (temp_goal.y - now.y)*(temp_goal.y - now.y);
+      SetGoal(-atan2(temp_goal.y - now.y, temp_goal.x - now.x) , distance>=20*20?60:distance>=10*10?40:15);
+    }
+      
+    static int cc = 0;
+    if(cc++ % 10 == 0){
+      u1_printf("(%d,%d) (%d,%d) (%d,%d)\n",now.x, now.y, temp_goal.x, temp_goal.y, ulti_goal.x, ulti_goal.y);
+      u1_printf("%.lf\n",GetYaw());
+    }
+  }
+   
 }
 void Solve2(){
 
@@ -483,6 +503,7 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   /* USER CODE BEGIN WHILE */
+  last_fix = getGameTime() , start_fix = getGameTime();
   while (1)
   {
     if(receive_flag)
@@ -493,7 +514,7 @@ int main(void)
     //     getGameTime(),(int32_t)getGameStage(),(int32_t)getGameStatus(),getScore(),
     //     getVehiclePos().x,getVehiclePos().y,getRemainDist(),getHalfGameDuration());
     //   u3_printf("ownPileNum:%d,oppPileNum:%d,orderNum:%d,latestOrder:(%d %d) (%d %d) %d %d %f,barrier1:(%d %d) (%d %d)\n",
-    //     getOwnChargingPileNum(),getOppChargingPileNum(),getOrderNum(),
+    //     getOwnChargingPileNum(),getOppChargingPileNum(),getOrderNum(), 
     //     getLatestPendingOrder().depPos.x,getLatestPendingOrder().depPos.y,
     //     getLatestPendingOrder().desPos.x,getLatestPendingOrder().desPos.y,
     //     getLatestPendingOrder().timeLimit,getLatestPendingOrder().orderId,getLatestPendingOrder().commission,
@@ -505,7 +526,9 @@ int main(void)
       }
       int stage = getGameStage();
       if(stage == Prematch) continue;
-      if(stage == FirstHalf) Solve1();
+      if(stage == FirstHalf){
+          Solve1();
+      }
       else Solve2();
     }
     /* USER CODE END WHILE */
