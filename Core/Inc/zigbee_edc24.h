@@ -28,6 +28,7 @@ typedef struct{
     Position_edc24 desPos;      //终点位置
     int32_t timeLimit;         //时间限制
     int16_t orderId;            //订单编号
+    _Bool isgot;                //是否已经被领取
     float commission;         //订单分数
 }Order_edc24;
 
@@ -39,6 +40,8 @@ typedef struct{
 extern uint8_t receive_flag;
 extern uint32_t error_flag;
 
+float max_float(float a,float b);
+float getCommission(Order_edc24 order,float tm);
 void zigbee_Init(UART_HandleTypeDef *huart);        //初始化,开始接收消息
 void zigbeeMessageRecord(void);                     //校验并记录消息，重新打开串口
 

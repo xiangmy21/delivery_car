@@ -147,6 +147,8 @@ uint8_t getOrderNum()
     return gameStatusMessage[17];
 }
 
+float getCommission(Order_edc24 order,float tm){ return max_float(0 , order.commission - max_float(5 * (tm - order.timeLimit) , 0)); }
+
 Order_edc24 getOneOrder(uint8_t orderNo)
 {
     Order_edc24 order;
@@ -171,6 +173,7 @@ Order_edc24 getLatestPendingOrder()
     order.timeLimit=*((int32_t*)(&gameStatusMessage[26+18*tmpnum]));
     order.commission=change_float_data(&gameStatusMessage[30+18*tmpnum]);
     order.orderId=*((int16_t*)(&gameStatusMessage[34+18*tmpnum]));
+    order.isgot = 0;
     return order;
 }
 
