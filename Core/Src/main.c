@@ -267,7 +267,7 @@ int Touch(Position_edc24 a, Position_edc24 b){
   return (a.x-b.x)*(a.x-b.x) + (a.y-b.y)*(a.y-b.y) <= 64;
 }
 
-int dep , have_order_cnt , get_time[5] ;
+int dep , bstorder , have_order_cnt , get_time[5] ;
 float bstsc, st_time;
 Position_edc24 arr[11] , bst;
 Order_edc24 have_order[5];
@@ -359,7 +359,7 @@ void dfs(int nd , float sc , float ntime,Position_edc24 now){
 }
 
 void Solve1(){
-  static int tarid = -1 , tmpid = -1;
+  static int tmpid = -1;
   static int is_mapped = 0;
   if(!is_mapped){
     is_mapped = 1;
@@ -442,13 +442,16 @@ void Solve1(){
 
     //tarid : destination -2, none -1, charge 0~2, order >2
     if( Touch(now, ulti_goal)){
-      if(tarid >= 0){
-        if(orders[tarid].isgot == 1) orders[tarid].commission = -100;
+      int tarid = -1;
+      for(int i=0;i<cnt_order;i++){
+        if(orders[i].depPos.x == ulti_goal.x && orders[i].depPos.y == ulti_goal.y){
+          tarid = i;
+          break;
+        }
       }
       if(tarid <= 2 && tarid >= 0){
         setChargingPile();
       }
-      tarid = -1;
     }
       
     //get a new ulti_goal
@@ -558,7 +561,14 @@ void Solve1(){
       SetGoal(0,0);
     else{
       int distance = (temp_goal.x - now.x)*(temp_goal.x - now.x) + (temp_goal.y - now.y)*(temp_goal.y - now.y);
-      SetGoal(-atan2(temp_goal.y - now.y, temp_goal.x - now.x) , distance>=20*20?60:distance>=10*10?40:15);
+      double theta = - atan2(temp_goal.y - now.y, temp_goal.x - now.x) , d = GetYaw() / 180 * pi - theta;
+      while(d <= -pi + 1e-7) d += pi;
+      while(d >= pi - 1e-7) d -= pi;
+      if(d < 0) d = -d;
+      if(d > 0.01)
+        SetGoal(theta , distance>=20*20?60:distance>=10*10?40:15);
+      else 
+        SetGoal(theta , distance>=20*20?200:distance>=10*10?60:15);
     }
       
     static int cc = 0;
