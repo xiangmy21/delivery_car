@@ -175,9 +175,13 @@ Position_edc24 GetPosition(int16_t x, int16_t y){
   Position_edc24 pos = {x,y};
   return pos;
 }
-int cnt_order = 0;
-Order_edc24 orders[100];
-Position_edc24 temp_goal = {126 , 126} , ulti_goal = {126 , 126} ;
+int cnt_order = 0, tot_order = 0;
+Order_edc24 orders[100], history_orders[1000];
+_Bool del_order[1000]; // some id deleted or not.
+Position_edc24 ulti_goal = {126 , 126} , centerpos = {126, 126};
+Position_edc24 candidate[100];
+int candidate_type[100] , candidate_id[100];
+int candidate_dis[100], getTime[100];
 
 Position_edc24 P[N] = {{20,20} , {126 , 20} , {236 , 20} 
 , {20 , 126} , {236 , 126} 
@@ -190,6 +194,7 @@ double param = Velocity/1000.0;
 int abs(int x){return x>=0?x:-x;}
 int max(int a,int b){return a>b?a:b;}
 int min(int a,int b){return a<b?a:b;}
+int sqr(int x){return x*x;}
 
 int calc_euclid2(Position_edc24 a, Position_edc24 b){
   return (a.x-b.x)*(a.x-b.x) + (a.y-b.y)*(a.y-b.y);
@@ -197,79 +202,118 @@ int calc_euclid2(Position_edc24 a, Position_edc24 b){
 int Touch(Position_edc24 a, Position_edc24 b){
   return (a.x-b.x)*(a.x-b.x) + (a.y-b.y)*(a.y-b.y) <= 64;
 }
-void delete_order(int j){
-  for(int k=j;k<cnt_order-1;k++)
-    orders[k] = orders[k+1];
-  cnt_order--;
+void delete_orderbyid(int id){
+  for(int i=0;i<cnt_order;i++)
+    if(orders[i].orderId == id){
+      u1_printf("id: %d  i: %d\n",id, i);
+      for(int j=i;j<cnt_order-1;j++)
+        orders[j] = orders[j+1];
+      cnt_order--;
+      break;
+    }
 }
 void InterAct(){
   Order_edc24 new_order = getLatestPendingOrder();
-  if(new_order.orderId!=-1 && (cnt_order == 0 || new_order.orderId != orders[cnt_order - 1].orderId)){
+  // hidden problem: orderId maybe 0.
+  if(new_order.orderId>0 && history_orders[new_order.orderId].orderId == 0){
     orders[cnt_order ++] = new_order;
+    // u1_printf("++ %d\n", new_order.orderId);
+    history_orders[new_order.orderId] = new_order;
   }
   for(int i=0,lim=getOrderNum();i<lim;i++){
     int id = getOneOrder(i).orderId;
-    for(int j=0;j<cnt_order;j++)
-      if(orders[j].orderId == id){
-        delete_order(j);
-        break;
-      }
+    if(!del_order[id] || history_orders[id].orderId != id){//后者判断可能没收到信息但是拿到了
+      getTime[id] = getGameTime();
+      del_order[id]=1;
+      if(history_orders[id].orderId != id) history_orders[id] = getOneOrder(i);
+      else delete_orderbyid(id);
+    }
   }
 }
 
 void Solve1(){
-  static int tarid = -1 , tarorderid = -1;
-  static int is_mapped = 0;
+  static int is_mapped = 0, tarid = -1;
   if(!is_mapped){
     is_mapped = 1;
-
-    //如何写安装充电柱�?
+    
     orders[cnt_order].depPos = GetPosition(39,126) ,  orders[cnt_order].desPos = GetPosition(40,126);
     orders[cnt_order].commission = 100;orders[cnt_order].timeLimit = 100;
-    orders[cnt_order].orderId = -333;
+    orders[cnt_order].orderId = -330;
    
     cnt_order ++;
     orders[cnt_order].depPos = GetPosition(215,126);orders[cnt_order].desPos = GetPosition(214,126);
     orders[cnt_order].commission = 100;orders[cnt_order].timeLimit = 100;
-    orders[cnt_order].orderId = -333;
+    orders[cnt_order].orderId = -331;
    
     cnt_order ++;
     orders[cnt_order].depPos  = GetPosition(126,39); orders[cnt_order].desPos = GetPosition(126,40);
     orders[cnt_order].commission = 100;orders[cnt_order].timeLimit = 100;
-    orders[cnt_order].orderId = -333;
+    orders[cnt_order].orderId = -332;
    
     cnt_order ++;
   } 
     
   Position_edc24 now = getVehiclePos();
 
-  //tarid : destination -2, none -1, charge 0~2, order >2
-  if( Touch(now, ulti_goal)){
-    if(tarid>=0 && tarorderid == -333){
-      delete_order(tarid);
-      for(int i=1;i<=5;i++) setChargingPile(),HAL_Delay(10);
+  if(Touch(now, ulti_goal)){ // setChargingPile
+    if(tarid <= -300){
+      delete_orderbyid(tarid);
+      for(int i=1;i<=3;i++) setChargingPile(),HAL_Delay(10);
     }
-    tarid = -1;
+  }
+  
+  int ordernum = getOrderNum();
+  //get a new ulti_goal
+  int cnt_candidate = 0;
+  int mx_commission = -0x3f3f3f3f , mxloc = -1;
+  for(int i=0;i<cnt_order;i++)
+  {
+    candidate[cnt_candidate] = orders[i].depPos;
+    candidate_dis[cnt_candidate] = calc_euclid2(orders[i].depPos , now);
+    candidate_id[cnt_candidate] = orders[i].orderId;
+    candidate_type[cnt_candidate++] = (orders[i].orderId == -333 ? 1 : 0); // 特判充电桩
+    if(orders[i].commission > mx_commission)
+      mx_commission = orders[i].commission,
+      mxloc = cnt_candidate - 1;
+  }
+
+  int mn_restime = 0x3f3f3f3f , mnloc = -1;
+  for(int i=0;i<ordernum;i++){
+    int id = getOneOrder(i).orderId;
+    candidate[cnt_candidate] = getOneOrder(i).desPos;
+    candidate_id[cnt_candidate] = -1;
+    candidate_dis[cnt_candidate] = calc_euclid2(candidate[cnt_candidate] , now);
+    candidate_type[cnt_candidate++] = 1;
+    if(history_orders[id].orderId == id && history_orders[id].timeLimit - (getGameTime() - getTime[id]) < mn_restime)
+      mn_restime = history_orders[id].timeLimit - (getGameTime() - getTime[id]),
+      mnloc = cnt_candidate - 1;
   }
     
-  //get a new ulti_goal
-  if(getOrderNum()){
-    ulti_goal = getOneOrder(0).desPos; // 手上有快递就先�?�快�?
-    tarid = -2, tarorderid = getOneOrder(0).orderId;//正在送快�?
+  int tarloc = -1;
+  if(mn_restime < 10000 || ordernum == 5 || mxloc == -1)// 有马上就要过期的快递 或者 目前拿的快递满了 或者没有要拿的快递
+    tarloc = mnloc;
+  else
+    tarloc = mxloc;
+  if(tarloc != -1){ // 有目标
+    float tolerence = 1.0 , mndis = candidate_dis[tarloc];
+    mnloc = tarloc;
+    for(int i=0;i<cnt_candidate;i++)
+      if((ordernum < 5 || candidate_type[i]) && sqr(candidate_dis[tarloc]) * tolerence >= sqr(candidate_dis[i]) + sqr(calc_euclid2(candidate[i] , candidate[tarloc]))){
+        if(candidate_dis[i] < mndis){
+          mndis = candidate_dis[i] ;
+            mnloc = i;
+        }
+      }
+    tarid = candidate_id[mnloc];
+    ulti_goal = candidate[mnloc];
   }
-  if(tarid != -2){
-    int mxs = -1;
-    for(int i=0;i<cnt_order;i++)
-      if(orders[i].commission > mxs)
-        mxs = orders[i].commission, tarid = i;
-    tarorderid = orders[tarid].orderId;
-    ulti_goal = orders[tarid].depPos;
-  }
+  else ulti_goal = centerpos;
 
   SetGoal(-atan2(ulti_goal.y - now.y, ulti_goal.x - now.x) , 30);
   static int cc = 0;
   if(cc++ % 10 == 0){
-    u1_printf("(%d,%d) (%d,%d) %.0f %d\n",now.x, now.y, ulti_goal.x, ulti_goal.y, GetYaw(), getGameTime());
+    //u1_printf("(%d,%d) (%d,%d)\n",now.x, now.y, ulti_goal.x, ulti_goal.y);
+    //u1_printf("%d %d %d %d %d\n",del_order[0], del_order[1], del_order[2], del_order[3], del_order[4]);
   }
 }
 void Solve2(){
@@ -353,11 +397,13 @@ int main(void)
   {
     if(receive_flag)
     {
-      reqGameInfo();
       zigbeeMessageRecord();
       if(!STAGE){
         int stage = getGameStage();
-        if(stage == Prematch) continue;
+        if(stage == Prematch) {
+          reqGameInfo();
+          continue;
+        }
         STAGE = stage;
       }
       InterAct();
