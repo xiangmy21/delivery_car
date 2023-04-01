@@ -99,17 +99,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
     int cnt;
     float ver, pwm;
     static int cc = 0; cc++;
-    static float v[5] = {0};
-    //if(cc%15==0) u3_printf("%.3f ", p1.goal);
     
     cnt = __HAL_TIM_GetCounter(&htim2);
     if(cnt>1<<15) cnt-=(1<<16);
     __HAL_TIM_SetCounter(&htim2, 0);
     ver = cnt*6.5*pi; // ver cm/s
-    v[1] += ver;
-    //if(cc%15==0) u3_printf("%.3f ", v[1]/15), v[1]=0;
     pwm = PID(&p1, ver);
-    //if(cc%100==0) u3_printf("%.2f\n",ver);
     if(pwm<0){
       HAL_GPIO_WritePin(GPIOC, GPIO_PIN_10, GPIO_PIN_SET);
       HAL_GPIO_WritePin(GPIOC, GPIO_PIN_11, GPIO_PIN_RESET);
@@ -125,8 +120,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
     if(cnt>1<<15) cnt-=(1<<16);
     __HAL_TIM_SetCounter(&htim3, 0);
     ver = cnt*6.5*pi; // ver cm/s
-    v[2] += ver;
-    //if(cc%15==0) u3_printf("%.3f ", v[2]/15), v[2]=0;
     pwm = PID(&p2, ver);
     
     if(pwm<0){
@@ -144,9 +137,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
     if(cnt>1<<15) cnt-=(1<<16);
     __HAL_TIM_SetCounter(&htim4, 0);
     ver = cnt*6.5*pi; // ver cm/s
-    v[3] += ver;
-    //if(cc%15==0) u3_printf("%.3f ", v[3]/15), v[3]=0;
-    //if(cc%100==0) u3_printf("%d -- %.3f\n", cnt, ver);
     pwm = PID(&p3, ver);
     if(pwm<0){
       HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
@@ -163,9 +153,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
     if(cnt>1<<15) cnt-=(1<<16);
     __HAL_TIM_SetCounter(&htim5, 0);
     ver = cnt*6.5*pi; // ver cm/s
-    v[4] += ver;
-    //if(cc%15==0) u3_printf("%.3f\n", v[4]/15), v[4]=0;
-    //if(cc%100==0) u3_printf("%d -- %.3f\n", cnt, ver);
     pwm = PID(&p4, ver);
     if(pwm<0){
       HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_SET);
@@ -183,129 +170,59 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 void jy62_Init(UART_HandleTypeDef* huart); 
 
 #define N 12
-unsigned int block[2][256][8];
-
 
 Position_edc24 GetPosition(int16_t x, int16_t y){
   Position_edc24 pos = {x,y};
   return pos;
 }
-int getblock(unsigned int block[256][8] , int x,int y){
-  int t = y >> 5;
-  return block[x][t] >> (y & 31) & 1;
-}
-void updblock(unsigned int block[256][8] , int x,int y){
-  int t = y >> 5;
-  block[x][t] |= 1 << (y & 31);
-}
-
 int cnt_order = 0;
 Order_edc24 orders[100];
-int CD[100][N][2];
 Position_edc24 temp_goal = {126 , 126} , ulti_goal = {126 , 126} ;
-Position_edc24 St = {-1 , -1};
 
 Position_edc24 P[N] = {{20,20} , {126 , 20} , {236 , 20} 
 , {20 , 126} , {236 , 126} 
 , {20 , 236} , {126 , 236} , {236 , 236}
 , {126 , 60} , {196 , 126} , {126 , 196} , {60 , 126}};
-int dis[N][N] , nxt[N][N] , gnxt[N];
 
 #define INF 0x3f3f3f3f
 #define Velocity 30
 double param = Velocity/1000.0;
-int last_fix , start_fix;
 int abs(int x){return x>=0?x:-x;}
 int max(int a,int b){return a>b?a:b;}
 int min(int a,int b){return a<b?a:b;}
-int calc_direct(Position_edc24 s, Position_edc24 t){
-  int dx = t.x-s.x, dy = t.y-s.y, blocknum = 0, k = min(abs(s.x-t.x)+abs(s.y-t.y),50);
-  // for(int i = 0; i < k; i++){
-  //   int x=s.x+dx*i*1.0/k, y=s.y+dy*i*1.0/k;
-  //   if(getblock(block[0] , x , y)) return INF;
-  //   if(getblock(block[1] , x , y)) blocknum++;
-  // }
-  double d = sqrt(dx*dx+dy*dy);
-  return k ? d + d * blocknum / k / Velocity*100*param : 0;
-}
 
-void Pre_dis(){
-  // calc dis of P. floyd.
-  for(int i=0;i<N;i++)
-    for(int j=0;j<N;j++)
-      dis[i][j] = calc_direct(P[i],P[j])
-      , nxt[i][j] = j;
-  for(int k=0;k<N;k++)
-    for(int i=0;i<N;i++)
-      for(int j=0;j<N;j++)
-        if(i!=k && dis[i][j] > dis[i][k] + dis[k][j])
-          dis[i][j] = dis[i][k] + dis[k][j] , 
-          nxt[i][j] = nxt[i][k];
-
-}
-
-void enblock(int x,int y,int u ,int v, int flg){
-  // if(x > u) swap(u , x);
-  // if(y > v) swap(y , v);
-  int fur = flg==1?5:2;
-  for(int i=max(x-fur , 0);i<=u+fur;i++)
-    for(int j=max(y-fur , 0);j<=v+fur;j++)
-      updblock(block[flg-1] , i , j);
-}
 int Touch(Position_edc24 a, Position_edc24 b){
   return (a.x-b.x)*(a.x-b.x) + (a.y-b.y)*(a.y-b.y) <= 64;
 }
+
+void InterAct(){
+  
+}
+
 void Solve1(){
   static int tarid = -1 , tmpid = -1;
   static int is_mapped = 0;
   if(!is_mapped){
     is_mapped = 1;
-    memset(block , 0 , sizeof block);
-    for(int i=0;i<5;i++){
-      Barrier_edc24 B = getOneBarrier(i);
-      enblock(B.pos_1.x , B.pos_1.y , B.pos_2.x , B.pos_2.y, 2);
-    } //if I am fast enough,I can cross them
-    enblock(38 , 38 , 107 , 40 , 1);
-    enblock(147 , 38 , 216 , 40 , 1);    
-    enblock(38 , 38 , 40 , 107 , 1);
-    enblock(38 ,147, 40 ,  216 , 1);    
-    enblock(38 , 214 , 107 , 216, 1);    
-    enblock(147 , 214 , 216 , 216 , 1);
-    enblock(214 , 38 , 216 , 107 , 1);
-    enblock(214 , 147 , 216 , 216 , 1);
 
     //如何写安装充电柱�?
     orders[cnt_order].depPos = GetPosition(39,126) ,  orders[cnt_order].desPos = GetPosition(40,126);
     orders[cnt_order].commission = 100;orders[cnt_order].timeLimit = 100;
-    for(int i=0;i<N;i++)
-      CD[cnt_order][i][0] = calc_direct(orders[cnt_order].depPos , P[i]),
-      CD[cnt_order][i][1] = calc_direct(orders[cnt_order].desPos , P[i]);
    
     cnt_order ++;
     orders[cnt_order].depPos = GetPosition(215,126);orders[cnt_order].desPos = GetPosition(214,126);
     orders[cnt_order].commission = 100;orders[cnt_order].timeLimit = 100;
-    for(int i=0;i<N;i++)
-      CD[cnt_order][i][0] = calc_direct(orders[cnt_order].depPos , P[i]),
-      CD[cnt_order][i][1] = calc_direct(orders[cnt_order].desPos , P[i]);
    
     cnt_order ++;
     orders[cnt_order].depPos  = GetPosition(126,39); orders[cnt_order].desPos = GetPosition(126,40);
     orders[cnt_order].commission = 100;orders[cnt_order].timeLimit = 100;
-    for(int i=0;i<N;i++)
-      CD[cnt_order][i][0] = calc_direct(orders[cnt_order].depPos , P[i]),
-      CD[cnt_order][i][1] = calc_direct(orders[cnt_order].desPos , P[i]);
    
     cnt_order ++;
-
-    Pre_dis();
   }
 
   // restore new order
   Order_edc24 new_order = getLatestPendingOrder(); // 还没领取的第�?个订�?
   if(new_order.orderId!=-1 && (cnt_order == 0 || new_order.orderId != orders[cnt_order - 1].orderId)){
-    for(int i=0;i<N;i++)
-      CD[cnt_order][i][0] = calc_direct(new_order.depPos , P[i]),
-      CD[cnt_order][i][1] = calc_direct(new_order.desPos , P[i]);
     orders[cnt_order ++] = new_order;
   }
   for(int i=0;i<getOrderNum();i++){
@@ -317,117 +234,101 @@ void Solve1(){
     
   Position_edc24 now = getVehiclePos();
 
-  if(now.x >= 20 && now.x <= 240 && now.y >= 20 && now.y <= 240 
-    && (getGameTime() - last_fix) >=600000 && (St.x == -1 || getGameTime() - start_fix <= 2000)){
-      if(St.x == -1) St = now , start_fix = getGameTime();
-      if((getGameTime() - start_fix) >= 1000)
-        SetGoal(GetYaw() , 20);  
-      else
-        SetGoal(0,0) , St = now;
+  //tarid : destination -2, none -1, charge 0~2, order >2
+  if( Touch(now, ulti_goal)){
+    if(tarid <= 2 && tarid >= 0){
+      orders[tarid].commission = 0;
+      int tt = getOwnChargingPileNum();
+      while(getOwnChargingPileNum() == tt) setChargingPile();
+    }
+    tarid = -1;
   }
-  else{
-    if(St.x != -1){
-      delta = -atan2(-St.y + now.y, -St.x + now.x) *180/pi - GetYaw();
-      St = GetPosition(-1, -1);
-      last_fix = getGameTime();
-    }
+    
+  //get a new ulti_goal
+  int ordernum = 0;
+  Position_edc24 tmp = ulti_goal;
+  //u1_printf("tmp initial: (%d,%d)\n",tmp.x,tmp.y);
+  if(ordernum = getOrderNum()){
+    //顺便把已经�?�了的标记一�?
+    tmp = getOneOrder(0).desPos; // 手上有快递就先�?�快�?
+    tarid = -2;//正在送快�?
+  }
+  else if(tarid >= -1){ // very slow 
+    int D[N];
+    for(int i=0;i<N;i++) D[i] = calc_direct(now , P[i]);
+    for(int i=0;i<N;i++) for(int j=0;j<N;j++) 
+      D[j] = min(D[j] , D[i] + dis[i][j]);
 
-    //tarid : destination -2, none -1, charge 0~2, order >2
-    if( Touch(now, ulti_goal)){
-      if(tarid <= 2 && tarid >= 0){
-        orders[tarid].commission = 0;
-        setChargingPile();
+    int mn = 0x3f3f3f3f;
+    Position_edc24 minLoc;
+    for(int i=0;i<cnt_order;i++)
+      if(orders[i].commission > 0){ // commission of orders delivered  will be set to 0
+        int DIS = calc_direct(now,orders[i].depPos);
+        for(int j=0;j<N;j++) DIS = min(DIS , D[j] + CD[i][j][0]);
+        if(DIS < mn)
+          mn = DIS ,
+          minLoc = orders[i].depPos , 
+          tarid = i;
       }
-      tarid = -1;
-    }
-      
-    //get a new ulti_goal
-    int ordernum = 0;
-    Position_edc24 tmp = ulti_goal;
-    //u1_printf("tmp initial: (%d,%d)\n",tmp.x,tmp.y);
-    if(ordernum = getOrderNum()){
-      //顺便把已经�?�了的标记一�?
-      tmp = getOneOrder(0).desPos; // 手上有快递就先�?�快�?
-      tarid = -2;//正在送快�?
-    }
-    else if(tarid >= -1){ // very slow 
-      int D[N];
-      for(int i=0;i<N;i++) D[i] = calc_direct(now , P[i]);
-      for(int i=0;i<N;i++) for(int j=0;j<N;j++) 
-        D[j] = min(D[j] , D[i] + dis[i][j]);
+    if(mn!=0x3f3f3f3f) tmp = minLoc;
+    //u1_printf(":355\n");
+  }
+  if(tmpid != -1 &&  Touch(now, temp_goal) ){
+    tmpid = gnxt[tmpid];
+    if(tmpid == -1)
+      temp_goal = ulti_goal;
+    else
+      temp_goal = P[tmpid];
+  }
+  if(tmp . x != ulti_goal . x || tmp.y != ulti_goal.y){
+    //u1_printf(":365\n");
+    ulti_goal = tmp;
+    int D[N],E[N];
+    for(int i=0;i<N;i++)
+      D[i] = calc_direct(ulti_goal , P[i]),
+      E[i] = calc_direct(now , P[i]);
 
-      int mn = 0x3f3f3f3f;
-      Position_edc24 minLoc;
-      for(int i=0;i<cnt_order;i++)
-        if(orders[i].commission > 0){ // commission of orders delivered  will be set to 0
-          int DIS = calc_direct(now,orders[i].depPos);
-          for(int j=0;j<N;j++) DIS = min(DIS , D[j] + CD[i][j][0]);
-          if(DIS < mn)
-            mn = DIS ,
-            minLoc = orders[i].depPos , 
-            tarid = i;
+    int mn = 0x3f3f3f3f , lst = -1;
+    for(int i=0;i<N;i++)
+      for(int j=0;j<N;j++)
+        if(D[j] + E[i] + dis[i][j] < mn){
+          mn = D[j] + E[i] + dis[i][j];
+          tmpid = i;
+          temp_goal = P[tmpid];
+          lst = j;
         }
-      if(mn!=0x3f3f3f3f) tmp = minLoc;
-      //u1_printf(":355\n");
+    if(calc_direct(now , ulti_goal) < mn){
+      temp_goal = ulti_goal;
+      mn = 1;
+      tmpid = -1;
     }
-    if(tmpid != -1 &&  Touch(now, temp_goal) ){
-      tmpid = gnxt[tmpid];
-      if(tmpid == -1)
-        temp_goal = ulti_goal;
-      else
-        temp_goal = P[tmpid];
-    }
-    if(tmp . x != ulti_goal . x || tmp.y != ulti_goal.y){
-      //u1_printf(":365\n");
-      ulti_goal = tmp;
-      int D[N],E[N];
-      for(int i=0;i<N;i++)
-        D[i] = calc_direct(ulti_goal , P[i]),
-        E[i] = calc_direct(now , P[i]);
-
-      int mn = 0x3f3f3f3f , lst = -1;
-      for(int i=0;i<N;i++)
-        for(int j=0;j<N;j++)
-          if(D[j] + E[i] + dis[i][j] < mn){
-            mn = D[j] + E[i] + dis[i][j];
-            tmpid = i;
-            temp_goal = P[tmpid];
-            lst = j;
-          }
-      if(calc_direct(now , ulti_goal) < mn){
-        temp_goal = ulti_goal;
-        mn = 1;
-        tmpid = -1;
-      }
-      else{
-        gnxt[lst] = -1;
-        for(int i = tmpid;i != lst; i = gnxt[i])
-          gnxt[i] = nxt[i][lst];
-      }
-      //if(mn == 0x3f3f3f3f) u1_printf("error\n");
-      //u1_printf(":390\n");
-    }
-    
-    // get a new temp_goal
-    
-
-    // and go 
-    now = getVehiclePos();
-    
-    if(now.x == temp_goal.x  && now.y == temp_goal.y)
-      SetGoal(0,0);
     else{
-      int distance = (temp_goal.x - now.x)*(temp_goal.x - now.x) + (temp_goal.y - now.y)*(temp_goal.y - now.y);
-      SetGoal(-atan2(temp_goal.y - now.y, temp_goal.x - now.x) , distance>=20*20?60:distance>=10*10?40:15);
+      gnxt[lst] = -1;
+      for(int i = tmpid;i != lst; i = gnxt[i])
+        gnxt[i] = nxt[i][lst];
     }
-      
-    static int cc = 0;
-    if(cc++ % 10 == 0){
-      u1_printf("(%d,%d) (%d,%d) (%d,%d)\n",now.x, now.y, temp_goal.x, temp_goal.y, ulti_goal.x, ulti_goal.y);
-      u1_printf("%.lf\n",GetYaw());
-    }
+    //if(mn == 0x3f3f3f3f) u1_printf("error\n");
+    //u1_printf(":390\n");
   }
-   
+  
+  // get a new temp_goal
+  
+
+  // and go 
+  now = getVehiclePos();
+  
+  if(now.x == temp_goal.x  && now.y == temp_goal.y)
+    SetGoal(0,0);
+  else{
+    int distance = (temp_goal.x - now.x)*(temp_goal.x - now.x) + (temp_goal.y - now.y)*(temp_goal.y - now.y);
+    SetGoal(-atan2(temp_goal.y - now.y, temp_goal.x - now.x) , distance>=20*20?40:distance>=10*10?20:15);
+  }
+    
+  static int cc = 0;
+  if(cc++ % 10 == 0){
+    u1_printf("(%d,%d) (%d,%d) (%d,%d)\n",now.x, now.y, temp_goal.x, temp_goal.y, ulti_goal.x, ulti_goal.y);
+    u1_printf("%.lf\n",GetYaw());
+  }
 }
 void Solve2(){
 
@@ -441,7 +342,9 @@ void Solve2(){
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-
+  // Bug May hidden:
+  // 1. chargingPile not set completely.
+  // 
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -503,23 +406,18 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   /* USER CODE BEGIN WHILE */
-  last_fix = getGameTime() , start_fix = getGameTime();
+  //last_fix = getGameTime() , start_fix = getGameTime();
+  HAL_Delay(2000);
+  setChargingPile();
+  HAL_Delay(2000);
+  while(!getOwnChargingPileNum()) setChargingPile();
   while (1)
   {
     if(receive_flag)
     {
       reqGameInfo();
       zigbeeMessageRecord();
-    //    u3_printf("time:%d,gameStage:%d,gameStatus:%d,score:%f,posx:%d,posy:%d,remainDist:%d,halfTime:%d\n",
-    //     getGameTime(),(int32_t)getGameStage(),(int32_t)getGameStatus(),getScore(),
-    //     getVehiclePos().x,getVehiclePos().y,getRemainDist(),getHalfGameDuration());
-    //   u3_printf("ownPileNum:%d,oppPileNum:%d,orderNum:%d,latestOrder:(%d %d) (%d %d) %d %d %f,barrier1:(%d %d) (%d %d)\n",
-    //     getOwnChargingPileNum(),getOppChargingPileNum(),getOrderNum(), 
-    //     getLatestPendingOrder().depPos.x,getLatestPendingOrder().depPos.y,
-    //     getLatestPendingOrder().desPos.x,getLatestPendingOrder().desPos.y,
-    //     getLatestPendingOrder().timeLimit,getLatestPendingOrder().orderId,getLatestPendingOrder().commission,
-    //     getOneBarrier(0).pos_1.x,getOneBarrier(0).pos_1.y,getOneBarrier(0).pos_2.x,getOneBarrier(0).pos_2.y);
-    //
+      InterAct();
       if(getGameStatus() == GameStandby){
         SetGoal(0,0);
         continue;
